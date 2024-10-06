@@ -11,11 +11,13 @@ module.exports = {
   plugins: [
     new TerserPlugin({
       terserOptions: {
-        keep_fnames: ['signIn', 'fetchProtected'],
+        keep_fnames: ['signIn', 'fetchProtected', 'createUser', 'updateUser'],
         mangle: {
           reserved: [
             "signIn",
-            "fetchProtected"
+            "fetchProtected",
+            "createUser",
+            "updateUser"
           ]
         }
       }

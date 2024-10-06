@@ -1,88 +1,97 @@
-import { SiweMessage } from 'siwe';
-import { BrowserProvider, JsonRpcSigner } from 'ethers';
-import * as solanaWeb3 from '@solana/web3.js';
-import bs58 from 'bs58';
+import { SiweMessage } from "siwe";
+import { BrowserProvider, JsonRpcSigner } from "ethers";
+import * as solanaWeb3 from "@solana/web3.js";
+import bs58 from "bs58";
 
-const endpoint = 'http://localhost:3000';
+const ENDPOINT = "http://localhost:3000";
+
+const getNonce = async (walletAddress, networkType) => {
+  const nonceResponse = await fetch(
+    `${ENDPOINT}/auth/nonce?address=${walletAddress}&type=${networkType}`,
+  );
+  const { nonce } = await nonceResponse.json();
+  return nonce;
+};
 
 export async function signIn(type) {
   let address, signature, message;
 
-  if (type === 'ethereum') {
-    await window.ethereum.request({ method: 'eth_requestAccounts' });
+  message = {
+    domain: window.location.host,
+    statement: "Sign in to zk-Lokomotive",
+    uri: window.location.origin,
+    version: "1",
+  };
+
+  if (type === "ethereum") {
+    await window.ethereum.request({ method: "eth_requestAccounts" });
     const provider = new BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
     address = await signer.getAddress();
-
-    const nonceResponse = await fetch(`${endpoint}/auth/nonce?address=${address}&type=ethereum`);
-    const { nonce } = await nonceResponse.json();
-
-    const siweMessage = new SiweMessage({
-      domain: window.location.host,
-      address: address,
-      statement: 'Sign in with Ethereum to zk-Lokomotive.',
-      uri: window.location.origin,
-      version: '1',
-      chainId: 1,
-      nonce: nonce
-    });
-
-    message = siweMessage.prepareMessage();
+    const nonce = await getNonce(address, type);
+    message = new SiweMessage({ ...message, address, chainId: 1, nonce });
+    message = message.prepareMessage();
     signature = await signer.signMessage(message);
-  } else if (type === 'solana') {
+  } else if (type === "solana") {
     const provider = window.solana;
     await provider.connect();
     address = provider.publicKey.toString();
-
-    const nonceResponse = await fetch(`${endpoint}/auth/nonce?address=${address}&type=solana`);
-    const { nonce } = await nonceResponse.json();
-
-    const encodedMessage = new TextEncoder().encode(nonce);
-    const signatureBytes = await provider.signMessage(encodedMessage, 'utf8');
+    const nonce = await getNonce(address, type);
+    const encodedMessage = new TextEncoder().encode(
+      JSON.stringify({ ...message, address, nonce, chainId: 900 }),
+    );
+    const signatureBytes = await provider.signMessage(encodedMessage, "utf8");
     signature = bs58.encode(signatureBytes.signature);
   } else {
-    throw new Error('Invalid type');
+    console.error(
+      'roadhog/signIn: parameter type can be "ethereum" or "solana"',
+    );
+    return;
   }
 
   try {
-    const response = await fetch(`${endpoint}/auth/verify`, {
-      method: 'POST',
+    const response = await fetch(`${ENDPOINT}/auth/verify`, {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify({ type, message, address, signature }),
+      body: JSON.stringify({
+        message,
+        walletAddress: address,
+        signature,
+      }),
     });
 
     if (!response.ok) {
       throw new Error((await response.json()).error);
     }
 
-    const { auth_token } = await response.json();
+    const { authToken } = await response.json();
 
-    localStorage.setItem('auth_token', auth_token);
-    localStorage.setItem('auth_type', type);
+    localStorage.setItem("authToken", authToken);
+    localStorage.setItem("networkType", type);
 
-    return { success: true, auth_token };
+    return { success: true, authToken, address };
   } catch (error) {
-    console.error('Authentication error:', error);
+    console.error("Authentication error:", error);
     return { success: false, error: error.message };
   }
 }
 
 export async function signOff() {
-  const auth_token = localStorage.getItem('auth_token');
-  const response = await fetch(`${endpoint}/auth/signoff`, {
-    method: 'DELETE',
+  const authToken = localStorage.getItem("authToken");
+  const response = await fetch(`${ENDPOINT}/auth/signoff`, {
+    method: "DELETE",
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${auth_token}`
-    }
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${authToken}`,
+    },
   });
 
   if (!response.ok) {
     throw new Error((await response.json()).error);
   } else {
-    localStorage.removeItem('auth_token');
+    localStorage.removeItem("authToken");
     return true;
   }
 }
